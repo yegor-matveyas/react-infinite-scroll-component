@@ -55,6 +55,7 @@ export default class InfiniteScroll extends Component<Props, State> {
   private el: HTMLElement | undefined | Window & typeof globalThis;
   private _infScroll: HTMLDivElement | undefined;
   private lastScrollTop = 0;
+  private lastScrollHeight = 0;
   private actionTriggered = false;
   private _pullDown: HTMLDivElement | undefined;
 
@@ -79,6 +80,12 @@ export default class InfiniteScroll extends Component<Props, State> {
     this.el = this.props.height
       ? this._infScroll
       : this._scrollableNode || window;
+
+    if (this.el instanceof HTMLElement) {
+      if (this.props.inverse) {
+        this.el.scrollTop = this.el.scrollHeight;
+      }
+    }
 
     if (this.el) {
       this.el.addEventListener('scroll', this
@@ -149,6 +156,32 @@ export default class InfiniteScroll extends Component<Props, State> {
     this.setState({
       showLoader: false,
     });
+
+    if (this.el instanceof HTMLElement) {
+      const target = this.el;
+
+      if (this.props.inverse) {
+        const clientHeight = this.getClientHeight(target);
+        const threshold = parseThreshold(this.props.scrollThreshold || 0.8);
+
+        const diff =
+          threshold.unit === ThresholdUnits.Pixel
+            ? clientHeight - threshold.value
+            : (threshold.value / 100) * clientHeight;
+
+        if (target.scrollTop === 0) {
+          target.scrollTop = target.scrollHeight - this.lastScrollHeight;
+          return;
+        }
+
+        if (target.scrollTop < diff) {
+          target.scrollTop =
+            target.scrollHeight -
+            this.lastScrollHeight +
+            (diff - target.scrollTop);
+        }
+      }
+    }
   }
 
   static getDerivedStateFromProps(nextProps: Props, prevState: State) {
@@ -251,25 +284,22 @@ export default class InfiniteScroll extends Component<Props, State> {
     });
   };
 
+  getClientHeight(target: HTMLElement) {
+    return target === document.body || target === document.documentElement
+      ? window.screen.availHeight
+      : target.clientHeight;
+  }
+
   isElementAtTop(target: HTMLElement, scrollThreshold: string | number = 0.8) {
-    const clientHeight =
-      target === document.body || target === document.documentElement
-        ? window.screen.availHeight
-        : target.clientHeight;
+    const clientHeight = this.getClientHeight(target);
 
     const threshold = parseThreshold(scrollThreshold);
 
     if (threshold.unit === ThresholdUnits.Pixel) {
-      return (
-        target.scrollTop <=
-        threshold.value + clientHeight - target.scrollHeight + 1
-      );
+      return target.scrollTop < clientHeight - threshold.value;
     }
 
-    return (
-      target.scrollTop <=
-      threshold.value / 100 + clientHeight - target.scrollHeight + 1
-    );
+    return target.scrollTop < (threshold.value / 100) * clientHeight;
   }
 
   isElementAtBottom(
@@ -322,10 +352,50 @@ export default class InfiniteScroll extends Component<Props, State> {
       this.actionTriggered = true;
       this.setState({ showLoader: true });
       this.props.next && this.props.next();
+
+      if (this.props.inverse) {
+        this.lastScrollHeight = target.scrollHeight;
+      }
     }
 
     this.lastScrollTop = target.scrollTop;
   };
+
+  renderComponents() {
+    const hasChildren =
+      this.props.hasChildren ||
+      !!(
+        this.props.children &&
+        this.props.children instanceof Array &&
+        this.props.children.length
+      );
+
+    if (this.props.inverse) {
+      return (
+        <>
+          {!this.props.hasMore && this.props.endMessage}
+          {this.state.showLoader && this.props.hasMore && this.props.loader}
+          {!this.state.showLoader &&
+            !hasChildren &&
+            this.props.hasMore &&
+            this.props.loader}
+          {this.props.children}
+        </>
+      );
+    } else {
+      return (
+        <>
+          {this.props.children}
+          {!this.state.showLoader &&
+            !hasChildren &&
+            this.props.hasMore &&
+            this.props.loader}
+          {this.state.showLoader && this.props.hasMore && this.props.loader}
+          {!this.props.hasMore && this.props.endMessage}
+        </>
+      );
+    }
+  }
 
   render() {
     const style = {
@@ -334,13 +404,6 @@ export default class InfiniteScroll extends Component<Props, State> {
       WebkitOverflowScrolling: 'touch',
       ...this.props.style,
     } as CSSProperties;
-    const hasChildren =
-      this.props.hasChildren ||
-      !!(
-        this.props.children &&
-        this.props.children instanceof Array &&
-        this.props.children.length
-      );
 
     // because heighted infiniteScroll visualy breaks
     // on drag down as overflow becomes visible
@@ -377,13 +440,7 @@ export default class InfiniteScroll extends Component<Props, State> {
               </div>
             </div>
           )}
-          {this.props.children}
-          {!this.state.showLoader &&
-            !hasChildren &&
-            this.props.hasMore &&
-            this.props.loader}
-          {this.state.showLoader && this.props.hasMore && this.props.loader}
-          {!this.props.hasMore && this.props.endMessage}
+          {this.renderComponents()}
         </div>
       </div>
     );
